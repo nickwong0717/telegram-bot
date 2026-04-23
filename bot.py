@@ -7,40 +7,40 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise ValueError("BOT_TOKEN is not set")
 
+# ===== 链接 =====
 REGISTER_LINK = "https://cm8gold.com/r/cm8jess"
+GROUP_LINK = "https://t.me/cm8asiaplayer"
+CS_LINK = "https://t.me/jessi_cm8"
 
 # ===== 语言内容 =====
 LANG = {
     "en": {
+        "choose_lang": "Choose Language",
         "welcome": "Welcome 👋\n\nChoose an option:",
-        "guide": "Guide:\n\n👉 Start here:\n" + REGISTER_LINK,
-        "faq": "FAQ:\n\nType 'start' to continue",
-        "start_btn": "Start Now",
-        "guide_btn": "Guide",
-        "faq_btn": "FAQ",
-        "lang_btn": "Language",
+        "bonus_btn": "🎁 BONUS",
+        "group_btn": "👥 Player Group",
+        "cs_btn": "👩‍💼 Live Support 8am-1am GMT+8",
+        "lang_btn": "🌐 Language",
     },
     "zh": {
+        "choose_lang": "请选择语言",
         "welcome": "欢迎 👋\n\n请选择：",
-        "guide": "新手指南：\n\n👉 开始请用：\n" + REGISTER_LINK,
-        "faq": "常见问题：\n\n输入 开始 继续",
-        "start_btn": "立即开始",
-        "guide_btn": "新手指南",
-        "faq_btn": "常见问题",
-        "lang_btn": "语言",
+        "bonus_btn": "🎁 BONUS",
+        "group_btn": "👥 玩家群",
+        "cs_btn": "👩‍💼 真人客服 8am-1am GMT+8",
+        "lang_btn": "🌐 语言",
     },
     "id": {
+        "choose_lang": "Pilih Bahasa",
         "welcome": "Selamat datang 👋\n\nSilakan pilih:",
-        "guide": "Panduan:\n\n👉 Mulai di sini:\n" + REGISTER_LINK,
-        "faq": "FAQ:\n\nKetik mulai",
-        "start_btn": "Mulai",
-        "guide_btn": "Panduan",
-        "faq_btn": "FAQ",
-        "lang_btn": "Bahasa",
+        "bonus_btn": "🎁 BONUS",
+        "group_btn": "👥 Grup Pemain",
+        "cs_btn": "👩‍💼 Customer Service 8am-1am GMT+8",
+        "lang_btn": "🌐 Bahasa",
     }
 }
 
-# ===== 按钮 =====
+# ===== 语言按钮 =====
 def lang_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("English", callback_data="set_en")],
@@ -48,12 +48,13 @@ def lang_keyboard():
         [InlineKeyboardButton("Bahasa Indonesia", callback_data="set_id")],
     ])
 
+# ===== 主菜单 =====
 def menu(lang):
     t = LANG[lang]
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t["guide_btn"], callback_data="guide")],
-        [InlineKeyboardButton(t["faq_btn"], callback_data="faq")],
-        [InlineKeyboardButton(t["start_btn"], url=REGISTER_LINK)],
+        [InlineKeyboardButton(t["bonus_btn"], url=REGISTER_LINK)],
+        [InlineKeyboardButton(t["group_btn"], url=GROUP_LINK)],
+        [InlineKeyboardButton(t["cs_btn"], url=CS_LINK)],
         [InlineKeyboardButton(t["lang_btn"], callback_data="change_lang")],
     ])
 
@@ -61,7 +62,7 @@ def menu(lang):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print("User triggered /start")
     await update.message.reply_text(
-        "Choose Language / 请选择语言",
+        "Choose Language / 请选择语言 / Pilih Bahasa",
         reply_markup=lang_keyboard()
     )
 
@@ -80,15 +81,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     lang = context.user_data.get("lang", "en")
-    t = LANG[lang]
 
-    if query.data == "guide":
-        await query.edit_message_text(t["guide"], reply_markup=menu(lang))
-    elif query.data == "faq":
-        await query.edit_message_text(t["faq"], reply_markup=menu(lang))
-    elif query.data == "change_lang":
+    if query.data == "change_lang":
         await query.edit_message_text(
-            "Choose Language / 请选择语言",
+            "Choose Language / 请选择语言 / Pilih Bahasa",
             reply_markup=lang_keyboard()
         )
 
