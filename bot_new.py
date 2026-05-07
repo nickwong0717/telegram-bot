@@ -1,6 +1,5 @@
 import os
 import logging
-from datetime import datetime, timedelta
 
 from telegram import (
     Update,
@@ -27,15 +26,6 @@ WEBSITE_LINK = "https://cm8gaming.com"
 logging.basicConfig(level=logging.INFO)
 
 user_lang = {}
-
-BAD_WORDS = [
-    "http://",
-    "https://",
-    "t.me/",
-    "whatsapp",
-    "free money",
-    "bonus link",
-]
 
 WELCOME = {
     "zh": {
@@ -152,6 +142,12 @@ def language_keyboard():
     ])
 
 
+def verify_keyboard(user_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Verify / 解锁发言", callback_data=f"verify_{user_id}")]
+    ])
+
+
 def main_keyboard(lang="ms"):
     t = WELCOME.get(lang, WELCOME["ms"])
     return InlineKeyboardMarkup([
@@ -163,10 +159,6 @@ def main_keyboard(lang="ms"):
         [InlineKeyboardButton(t["website"], url=WEBSITE_LINK)],
         [InlineKeyboardButton(t["rules"], callback_data=f"rules_{lang}")],
     ])
-
-
-def get_user_lang(user_id):
-    return user_lang.get(user_id, "ms")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,28 +177,89 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_lang[user.id] = "ms"
 
         try:
-            until = datetime.now() + timedelta(seconds=30)
+            # 新人进群先禁言
             await context.bot.restrict_chat_member(
                 chat_id=update.effective_chat.id,
                 user_id=user.id,
-                permissions=ChatPermissions(can_send_messages=False),
-                until_date=until,
+                permissions=ChatPermissions(
+                    can_send_messages=False,
+                    can_send_audios=False,
+                    can_send_documents=False,
+                    can_send_photos=False,
+                    can_send_videos=False,
+                    can_send_video_notes=False,
+                    can_send_voice_notes=False,
+                    can_send_polls=False,
+                    can_send_other_messages=False,
+                    can_add_web_page_previews=False,
+                    can_change_info=False,
+                    can_invite_users=False,
+                    can_pin_messages=False,
+                    can_manage_topics=False,
+                ),
             )
         except Exception as e:
             logging.warning(f"Restrict failed: {e}")
 
         await update.message.reply_text(
-            f"🎉 Selamat datang {name}!\n\n请选择语言 / Sila pilih bahasa / Please choose language:",
-            reply_markup=language_keyboard()
+            f"🎉 Selamat datang {name}!\n\n"
+            "Untuk elakkan spam, sila klik Verify dahulu.\n\n"
+            "为了防止广告，请先点击 Verify 解锁发言。\n\n"
+            "Please click Verify before chatting.",
+            reply_markup=verify_keyboard(user.id)
         )
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
+    # Verify 解锁发言
+    if data.startswith("verify_"):
+        target_user_id = int(data.replace("verify_", ""))
+
+        if query.from_user.id != target_user_id:
+            await query.answer("This verify button is not for you.", show_alert=True)
+            return
+
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=query.message.chat_id,
+                user_id=target_user_id,
+                permissions=ChatPermissions(
+                    can_send_messages=True,
+                    can_send_audios=True,
+                    can_send_documents=True,
+                    can_send_photos=True,
+                    can_send_videos=True,
+                    can_send_video_notes=True,
+                    can_send_voice_notes=True,
+                    can_send_polls=True,
+                    can_send_other_messages=True,
+                    can_add_web_page_previews=True,
+                    can_invite_users=True,
+                ),
+            )
+
+            await query.edit_message_text(
+                "✅ Verification successful!\n\n"
+                "你已经解锁，可以发言了。\n"
+                "Anda sudah boleh mula chat."
+            )
+
+            await query.message.reply_text(
+                "请选择语言 / Sila pilih bahasa / Please choose language:",
+                reply_markup=language_keyboard()
+            )
+
+        except Exception as e:
+            logging.warning(f"Verify failed: {e}")
+            await query.answer("Verify failed. Please contact admin.", show_alert=True)
+
+        return
+
+    # 语言选择
     if data.startswith("lang_"):
         lang = data.replace("lang_", "")
         user_id = query.from_user.id
@@ -220,6 +273,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_keyboard(lang)
         )
 
+    # 群规则
     elif data.startswith("rules_"):
         lang = data.replace("rules_", "")
 
@@ -240,10 +294,24 @@ async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     user = update.effective_user
 
-    if any(bad in text for bad in BAD_WORDS):
+    spam_words = [
+        "http://",
+        "https://",
+        "t.me/",
+        "whatsapp",
+        "free money",
+        "bonus link",
+        "airdrop",
+        "投资",
+        "赚钱",
+        "广告",
+    ]
+
+    if any(word in text for word in spam_words):
         try:
             await update.message.delete()
             await update.message.chat.ban_member(user.id)
+            logging.info(f"Banned spam user: {user.id}")
         except Exception as e:
             logging.warning(f"Anti spam failed: {e}")
 
@@ -252,6 +320,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📊 Bot is running.\n\n"
         "Welcome Bot: ✅\n"
+        "Verify Unlock: ✅\n"
         "Multi-language: ✅\n"
         "Anti-spam: ✅\n"
         "USDT welcome text: ✅"
