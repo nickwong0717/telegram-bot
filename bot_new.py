@@ -3,12 +3,7 @@ import logging
 import re
 from datetime import timedelta
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ChatPermissions,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -30,13 +25,14 @@ logging.basicConfig(level=logging.INFO)
 user_lang = {}
 verified_users = set()
 spam_warnings = {}
+banned_users = {}
 
-WHITELIST_DOMAINS = [
+WHITELIST_DOMAINS = set([
     "cm8gold.com",
     "cm8gaming.com",
     "t.me/jessi_cm8",
     "t.me/cm8asiaplayer",
-]
+])
 
 WELCOME = {
     "zh": {
@@ -95,7 +91,6 @@ Gunakan USDT untuk deposit & pengeluaran
 Gunakan USDT untuk deposit & withdraw
 
 ✔️ Lebih cepat
-✔️ Lebih stabil
 ✔️ Privasi lebih aman
 ✔️ Support multi-currency
 
@@ -118,7 +113,6 @@ Gunakan USDT untuk deposit & withdraw
 Use USDT for deposit & withdrawal
 
 ✔️ Faster transactions
-✔️ More stable
 ✔️ Better privacy
 ✔️ Multi-currency supported
 
@@ -173,7 +167,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
 
 
 def is_whitelisted(text: str):
-    return any(domain in text for domain in WHITELIST_DOMAINS)
+    return any(domain.lower() in text.lower() for domain in WHITELIST_DOMAINS)
 
 
 def has_domain_or_link(text: str):
@@ -276,23 +270,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_lang[query.from_user.id] = lang
 
         name = query.from_user.first_name or "friend"
-        text = WELCOME[lang]["text"].format(name=name)
-
         await query.edit_message_text(
-            text=text,
+            text=WELCOME[lang]["text"].format(name=name),
             reply_markup=main_keyboard(lang)
         )
 
     elif data.startswith("rules_"):
         lang = data.replace("rules_", "")
-
         rules_text = {
             "zh": "📌 群规则：\n\n1. 禁止广告\n2. 禁止私信骚扰群友\n3. 禁止刷屏\n4. 有问题请联系客服",
             "ms": "📌 Peraturan Group:\n\n1. Dilarang spam iklan\n2. Jangan ganggu ahli lain\n3. Jangan flood mesej\n4. Ada masalah sila hubungi CS",
-            "id": "📌 Peraturan Grup:\n\n1. Dilarang spam iklan\n2. Jangan ganggu member lain\n3. Jangan kirim pesan berlebihan\n4. Hubungi CS jika perlu",
-            "en": "📌 Group Rules:\n\n1. No spam ads\n2. Do not disturb members\n3. No message flooding\n4. Contact support if needed",
+            "id": "📌 Peraturan Grup:\n\n1. Dilarang spam iklan\n2. Jangan ganggu member lain\n3. Hubungi CS jika perlu",
+            "en": "📌 Group Rules:\n\n1. No spam ads\n2. Do not disturb members\n3. Contact support if needed",
         }
-
         await query.message.reply_text(rules_text.get(lang, rules_text["ms"]))
 
 
@@ -354,12 +344,79 @@ async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if spam_warnings[user.id] >= 2:
         try:
             await update.message.chat.ban_member(user.id)
+
+            banned_users[user.id] = {
+                "name": user.first_name or "Unknown",
+                "username": user.username or "-",
+                "reason": text[:80],
+            }
+
             await update.message.reply_text(
                 f"🚫 User banned for repeated spam: {user.first_name}"
             )
             logging.info(f"Banned spam user: {user.id}")
         except Exception as e:
             logging.warning(f"Ban failed: {e}")
+
+
+async def banlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context, update.effective_user.id):
+        await update.message.reply_text("Only admin can use this command.")
+        return
+
+    if not banned_users:
+        await update.message.reply_text("✅ Banlist is empty.")
+        return
+
+    lines = ["🚫 Banned Users:\n"]
+    for user_id, info in banned_users.items():
+        lines.append(
+            f"ID: {user_id}\n"
+            f"Name: {info['name']}\n"
+            f"Username: @{info['username']}\n"
+            f"Reason: {info['reason']}\n"
+        )
+
+    await update.message.reply_text("\n".join(lines[:30]))
+
+
+async def whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context, update.effective_user.id):
+        await update.message.reply_text("Only admin can use this command.")
+        return
+
+    text = "✅ Whitelist Domains:\n\n" + "\n".join(sorted(WHITELIST_DOMAINS))
+    await update.message.reply_text(text)
+
+
+async def whitelist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context, update.effective_user.id):
+        await update.message.reply_text("Only admin can use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Use: /whitelist_add domain.com")
+        return
+
+    domain = context.args[0].lower().replace("https://", "").replace("http://", "").strip("/")
+    WHITELIST_DOMAINS.add(domain)
+
+    await update.message.reply_text(f"✅ Added to whitelist: {domain}")
+
+
+async def whitelist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context, update.effective_user.id):
+        await update.message.reply_text("Only admin can use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Use: /whitelist_remove domain.com")
+        return
+
+    domain = context.args[0].lower().replace("https://", "").replace("http://", "").strip("/")
+    WHITELIST_DOMAINS.discard(domain)
+
+    await update.message.reply_text(f"✅ Removed from whitelist: {domain}")
 
 
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -380,6 +437,8 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         spam_warnings.pop(user_id, None)
         verified_users.discard(user_id)
+        banned_users.pop(user_id, None)
+
         await update.message.reply_text(f"✅ Unbanned user: {user_id}")
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
@@ -393,9 +452,12 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Anti-spam: ✅\n"
         "First spam: delete + 10 min mute ✅\n"
         "Second spam: ban ✅\n"
-        "Whitelist: ✅\n"
-        f"Verified users in memory: {len(verified_users)}\n"
-        f"Users with warnings: {len(spam_warnings)}"
+        "Banlist: ✅\n"
+        "Whitelist: ✅\n\n"
+        f"Verified users: {len(verified_users)}\n"
+        f"Users with warnings: {len(spam_warnings)}\n"
+        f"Banned users recorded: {len(banned_users)}\n"
+        f"Whitelist domains: {len(WHITELIST_DOMAINS)}"
     )
 
 
@@ -408,6 +470,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("unban", unban))
+    app.add_handler(CommandHandler("banlist", banlist))
+    app.add_handler(CommandHandler("whitelist", whitelist))
+    app.add_handler(CommandHandler("whitelist_add", whitelist_add))
+    app.add_handler(CommandHandler("whitelist_remove", whitelist_remove))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -417,5 +483,7 @@ def main():
     app.run_polling()
 
 
+if __name__ == "__main__":
+    main()
 if __name__ == "__main__":
     main()
