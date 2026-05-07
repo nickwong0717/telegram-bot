@@ -16,9 +16,9 @@ from telegram.ext import (
 TOKEN = os.getenv("BOT_TOKEN")
 
 REGISTER_LINK = "https://cm8gold.com/r/cm8jess"
-GROUP_LINK = "https://t.me/cm8asiaplayer"
+GROUP_LINK = "https://t.me/+mlw8J3VjSghlMDU9"
 CS_LINK = "https://t.me/jessi_cm8"
-WEBSITE_LINK = "https://cm8gaming.com"
+WEBSITE_LINK = "https://cm8app.net/"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -29,9 +29,9 @@ banned_users = {}
 
 WHITELIST_DOMAINS = set([
     "cm8gold.com",
-    "cm8gaming.com",
+    "cm8app.net",
     "t.me/jessi_cm8",
-    "t.me/cm8asiaplayer",
+    "t.me/+mlw8J3VjSghlMDU9",
 ])
 
 WELCOME = {
@@ -52,9 +52,8 @@ WELCOME = {
 👇 请选择：""",
         "register": "🔥 立即注册",
         "cs": "🧑‍💻 联系客服",
-        "group": "📢 玩家群",
-        "website": "🌐 官方入口",
-        "rules": "📌 群规则",
+        "group": "📢 CM8 Channel",
+        "website": "⬇️ 下载 APP",
     },
     "ms": {
         "text": """🎉 Selamat datang {name}!
@@ -75,9 +74,8 @@ Gunakan USDT untuk deposit & pengeluaran
 👇 Pilih sekarang:""",
         "register": "🔥 Daftar Sekarang",
         "cs": "🧑‍💻 Hubungi CS",
-        "group": "📢 Group Pemain",
-        "website": "🌐 Laman Utama",
-        "rules": "📌 Peraturan Group",
+        "group": "📢 CM8 Channel",
+        "website": "⬇️ Muat Turun App",
     },
     "id": {
         "text": """🎉 Selamat datang {name}!
@@ -97,9 +95,8 @@ Gunakan USDT untuk deposit & withdraw
 👇 Pilih di bawah:""",
         "register": "🔥 Daftar Sekarang",
         "cs": "🧑‍💻 Hubungi CS",
-        "group": "📢 Grup Pemain",
-        "website": "🌐 Website Utama",
-        "rules": "📌 Peraturan Grup",
+        "group": "📢 CM8 Channel",
+        "website": "⬇️ Download Aplikasi",
     },
     "en": {
         "text": """🎉 Welcome {name}!
@@ -119,9 +116,8 @@ Use USDT for deposit & withdrawal
 👇 Choose below:""",
         "register": "🔥 Register Now",
         "cs": "🧑‍💻 Contact Support",
-        "group": "📢 Player Group",
-        "website": "🌐 Main Website",
-        "rules": "📌 Group Rules",
+        "group": "📢 CM8 Channel",
+        "website": "⬇️ Download App",
     },
 }
 
@@ -154,7 +150,6 @@ def main_keyboard(lang="ms"):
             InlineKeyboardButton(t["group"], url=GROUP_LINK),
         ],
         [InlineKeyboardButton(t["website"], url=WEBSITE_LINK)],
-        [InlineKeyboardButton(t["rules"], callback_data=f"rules_{lang}")],
     ])
 
 
@@ -205,10 +200,10 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logging.warning(f"Restrict failed: {e}")
 
         await update.message.reply_text(
-            f"🎉 Selamat datang {name}!\n\n"
-            "Untuk elakkan spam, sila klik Verify dahulu.\n\n"
-            "为了防止广告，请先点击 Verify 解锁发言。\n\n"
-            "Please click Verify before chatting.",
+            f"🎉 Welcome {name}!\n\n"
+            "Please click Verify to unlock chat.\n"
+            "请先点击 Verify 解锁发言。\n"
+            "Sila klik Verify dahulu untuk buka chat.",
             reply_markup=verify_keyboard(user.id)
         )
 
@@ -246,8 +241,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
             )
 
-            name = query.from_user.first_name or "friend"
-
             await query.edit_message_text(
                 "✅ Verification successful!\n\n"
                 "你已经解锁，可以发言了。\n"
@@ -274,16 +267,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=WELCOME[lang]["text"].format(name=name),
             reply_markup=main_keyboard(lang)
         )
-
-    elif data.startswith("rules_"):
-        lang = data.replace("rules_", "")
-        rules_text = {
-            "zh": "📌 群规则：\n\n1. 禁止广告\n2. 禁止私信骚扰群友\n3. 禁止刷屏\n4. 有问题请联系客服",
-            "ms": "📌 Peraturan Group:\n\n1. Dilarang spam iklan\n2. Jangan ganggu ahli lain\n3. Jangan flood mesej\n4. Ada masalah sila hubungi CS",
-            "id": "📌 Peraturan Grup:\n\n1. Dilarang spam iklan\n2. Jangan ganggu member lain\n3. Hubungi CS jika perlu",
-            "en": "📌 Group Rules:\n\n1. No spam ads\n2. Do not disturb members\n3. Contact support if needed",
-        }
-        await query.message.reply_text(rules_text.get(lang, rules_text["ms"]))
 
 
 async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,13 +331,15 @@ async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
             banned_users[user.id] = {
                 "name": user.first_name or "Unknown",
                 "username": user.username or "-",
+                "id": user.id,
                 "reason": text[:80],
             }
+
+            logging.info(f"BANNED USER => ID:{user.id} USERNAME:@{user.username}")
 
             await update.message.reply_text(
                 f"🚫 User banned for repeated spam: {user.first_name}"
             )
-            logging.info(f"Banned spam user: {user.id}")
         except Exception as e:
             logging.warning(f"Ban failed: {e}")
 
@@ -430,11 +415,13 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         user_id = int(context.args[0])
+
         await context.bot.unban_chat_member(
             chat_id=update.effective_chat.id,
             user_id=user_id,
             only_if_banned=True,
         )
+
         spam_warnings.pop(user_id, None)
         verified_users.discard(user_id)
         banned_users.pop(user_id, None)
@@ -455,8 +442,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Banlist: ✅\n"
         "Whitelist: ✅\n\n"
         f"Verified users: {len(verified_users)}\n"
-        f"Users with warnings: {len(spam_warnings)}\n"
-        f"Banned users recorded: {len(banned_users)}\n"
+        f"Warnings: {len(spam_warnings)}\n"
+        f"Banned recorded: {len(banned_users)}\n"
         f"Whitelist domains: {len(WHITELIST_DOMAINS)}"
     )
 
@@ -483,7 +470,5 @@ def main():
     app.run_polling()
 
 
-if __name__ == "__main__":
-    main()
 if __name__ == "__main__":
     main()
