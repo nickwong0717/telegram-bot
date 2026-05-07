@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+from datetime import timedelta
 
 from telegram import (
     Update,
@@ -28,8 +29,37 @@ logging.basicConfig(level=logging.INFO)
 
 user_lang = {}
 verified_users = set()
+spam_warnings = {}
+
+WHITELIST_DOMAINS = [
+    "cm8gold.com",
+    "cm8gaming.com",
+    "t.me/jessi_cm8",
+    "t.me/cm8asiaplayer",
+]
 
 WELCOME = {
+    "zh": {
+        "text": """🎉 欢迎 {name}！
+
+🔥 新手最快上手：
+1️⃣ 点击注册
+2️⃣ 登录开始
+3️⃣ 联系客服领取奖励 🎁
+
+💡 推荐使用 USDT 进行充值与提现：
+✔️ 速度更快
+✔️ 更稳定
+✔️ 隐私性更高
+✔️ 支持多货币
+
+👇 请选择：""",
+        "register": "🔥 立即注册",
+        "cs": "🧑‍💻 联系客服",
+        "group": "📢 玩家群",
+        "website": "🌐 官方入口",
+        "rules": "📌 群规则",
+    },
     "ms": {
         "text": """🎉 Selamat datang {name}!
 
@@ -44,30 +74,85 @@ Gunakan USDT untuk deposit & pengeluaran
 ✔️ Lebih pantas
 ✔️ Lebih stabil
 ✔️ Privasi lebih terjaga
+✔️ Sokong multi-currency
 
 👇 Pilih sekarang:""",
         "register": "🔥 Daftar Sekarang",
         "cs": "🧑‍💻 Hubungi CS",
         "group": "📢 Group Pemain",
         "website": "🌐 Laman Utama",
-    }
+        "rules": "📌 Peraturan Group",
+    },
+    "id": {
+        "text": """🎉 Selamat datang {name}!
+
+🔥 Mulai sekarang:
+1️⃣ Klik Daftar
+2️⃣ Login & mulai main
+3️⃣ Hubungi CS untuk bonus 🎁
+
+💡 Rekomendasi:
+Gunakan USDT untuk deposit & withdraw
+
+✔️ Lebih cepat
+✔️ Lebih stabil
+✔️ Privasi lebih aman
+✔️ Support multi-currency
+
+👇 Pilih di bawah:""",
+        "register": "🔥 Daftar Sekarang",
+        "cs": "🧑‍💻 Hubungi CS",
+        "group": "📢 Grup Pemain",
+        "website": "🌐 Website Utama",
+        "rules": "📌 Peraturan Grup",
+    },
+    "en": {
+        "text": """🎉 Welcome {name}!
+
+🔥 Quick start:
+1️⃣ Click Register
+2️⃣ Login & play
+3️⃣ Contact CS for bonus 🎁
+
+💡 Recommendation:
+Use USDT for deposit & withdrawal
+
+✔️ Faster transactions
+✔️ More stable
+✔️ Better privacy
+✔️ Multi-currency supported
+
+👇 Choose below:""",
+        "register": "🔥 Register Now",
+        "cs": "🧑‍💻 Contact Support",
+        "group": "📢 Player Group",
+        "website": "🌐 Main Website",
+        "rules": "📌 Group Rules",
+    },
 }
 
 
 def language_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇲🇾 Malay", callback_data="lang_ms")]
+        [
+            InlineKeyboardButton("🇨🇳 中文", callback_data="lang_zh"),
+            InlineKeyboardButton("🇲🇾 Malay", callback_data="lang_ms"),
+        ],
+        [
+            InlineKeyboardButton("🇮🇩 Indonesia", callback_data="lang_id"),
+            InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+        ],
     ])
 
 
 def verify_keyboard(user_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Verify", callback_data=f"verify_{user_id}")]
+        [InlineKeyboardButton("✅ Verify / 解锁发言", callback_data=f"verify_{user_id}")]
     ])
 
 
 def main_keyboard(lang="ms"):
-    t = WELCOME["ms"]
+    t = WELCOME.get(lang, WELCOME["ms"])
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(t["register"], url=REGISTER_LINK)],
         [
@@ -75,10 +160,43 @@ def main_keyboard(lang="ms"):
             InlineKeyboardButton(t["group"], url=GROUP_LINK),
         ],
         [InlineKeyboardButton(t["website"], url=WEBSITE_LINK)],
+        [InlineKeyboardButton(t["rules"], callback_data=f"rules_{lang}")],
     ])
 
 
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    try:
+        member = await context.bot.get_chat_member(update.effective_chat.id, user_id)
+        return member.status in ["administrator", "creator"]
+    except Exception:
+        return False
+
+
+def is_whitelisted(text: str):
+    return any(domain in text for domain in WHITELIST_DOMAINS)
+
+
+def has_domain_or_link(text: str):
+    domain_pattern = r"(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}"
+    return (
+        "http://" in text
+        or "https://" in text
+        or "t.me/" in text
+        or re.search(domain_pattern, text)
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "请选择语言 / Sila pilih bahasa / Please choose language:",
+        reply_markup=language_keyboard()
+    )
+
+
 async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.new_chat_members:
+        return
+
     for user in update.message.new_chat_members:
         name = user.first_name or "friend"
         user_lang[user.id] = "ms"
@@ -89,11 +207,14 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 user_id=user.id,
                 permissions=ChatPermissions(can_send_messages=False),
             )
-        except:
-            pass
+        except Exception as e:
+            logging.warning(f"Restrict failed: {e}")
 
         await update.message.reply_text(
-            f"🎉 Selamat datang {name}!\n\nKlik VERIFY dahulu untuk buka chat.",
+            f"🎉 Selamat datang {name}!\n\n"
+            "Untuk elakkan spam, sila klik Verify dahulu.\n\n"
+            "为了防止广告，请先点击 Verify 解锁发言。\n\n"
+            "Please click Verify before chatting.",
             reply_markup=verify_keyboard(user.id)
         )
 
@@ -101,37 +222,78 @@ async def welcome_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
     if data.startswith("verify_"):
-        user_id = int(data.replace("verify_", ""))
+        target_user_id = int(data.replace("verify_", ""))
 
-        if query.from_user.id != user_id:
-            await query.answer("Not for you", show_alert=True)
+        if query.from_user.id != target_user_id:
+            await query.answer("This verify button is not for you.", show_alert=True)
             return
 
-        verified_users.add(user_id)
+        verified_users.add(target_user_id)
 
         try:
             await context.bot.restrict_chat_member(
                 chat_id=query.message.chat_id,
-                user_id=user_id,
-                permissions=ChatPermissions(can_send_messages=True),
+                user_id=target_user_id,
+                permissions=ChatPermissions(
+                    can_send_messages=True,
+                    can_send_audios=True,
+                    can_send_documents=True,
+                    can_send_photos=True,
+                    can_send_videos=True,
+                    can_send_video_notes=True,
+                    can_send_voice_notes=True,
+                    can_send_polls=True,
+                    can_send_other_messages=True,
+                    can_add_web_page_previews=True,
+                    can_invite_users=True,
+                ),
             )
-        except:
-            pass
+
+            name = query.from_user.first_name or "friend"
+
+            await query.edit_message_text(
+                "✅ Verification successful!\n\n"
+                "你已经解锁，可以发言了。\n"
+                "Anda sudah boleh mula chat."
+            )
+
+            await query.message.reply_text(
+                "请选择语言 / Sila pilih bahasa / Please choose language:",
+                reply_markup=language_keyboard()
+            )
+
+        except Exception as e:
+            logging.warning(f"Verify failed: {e}")
+            await query.answer("Verify failed. Please contact admin.", show_alert=True)
+
+        return
+
+    if data.startswith("lang_"):
+        lang = data.replace("lang_", "")
+        user_lang[query.from_user.id] = lang
 
         name = query.from_user.first_name or "friend"
+        text = WELCOME[lang]["text"].format(name=name)
 
         await query.edit_message_text(
-            f"✅ Verified!\n\nWelcome {name}"
+            text=text,
+            reply_markup=main_keyboard(lang)
         )
 
-        await query.message.reply_text(
-            WELCOME["ms"]["text"].format(name=name),
-            reply_markup=main_keyboard()
-        )
+    elif data.startswith("rules_"):
+        lang = data.replace("rules_", "")
+
+        rules_text = {
+            "zh": "📌 群规则：\n\n1. 禁止广告\n2. 禁止私信骚扰群友\n3. 禁止刷屏\n4. 有问题请联系客服",
+            "ms": "📌 Peraturan Group:\n\n1. Dilarang spam iklan\n2. Jangan ganggu ahli lain\n3. Jangan flood mesej\n4. Ada masalah sila hubungi CS",
+            "id": "📌 Peraturan Grup:\n\n1. Dilarang spam iklan\n2. Jangan ganggu member lain\n3. Jangan kirim pesan berlebihan\n4. Hubungi CS jika perlu",
+            "en": "📌 Group Rules:\n\n1. No spam ads\n2. Do not disturb members\n3. No message flooding\n4. Contact support if needed",
+        }
+
+        await query.message.reply_text(rules_text.get(lang, rules_text["ms"]))
 
 
 async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -141,42 +303,111 @@ async def anti_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text.lower()
 
-    # 🚨 只限制未 verify 用户
-    if user.id in verified_users:
+    if await is_admin(update, context, user.id):
         return
 
-    # 🚨 检测 link
-    if "http://" in text or "https://" in text or "t.me/" in text:
+    if is_whitelisted(text):
+        return
+
+    spam_words = [
+        "airdrop",
+        "free money",
+        "bonus link",
+        "投资",
+        "赚钱",
+        "广告",
+        "加微信",
+        "加我",
+    ]
+
+    is_spam = has_domain_or_link(text) or any(word in text for word in spam_words)
+
+    if not is_spam:
+        return
+
+    spam_warnings[user.id] = spam_warnings.get(user.id, 0) + 1
+
+    try:
+        await update.message.delete()
+    except Exception as e:
+        logging.warning(f"Delete failed: {e}")
+
+    if spam_warnings[user.id] == 1:
         try:
-            await update.message.delete()
+            await context.bot.restrict_chat_member(
+                chat_id=update.effective_chat.id,
+                user_id=user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=update.message.date + timedelta(minutes=10),
+            )
+
+            await update.message.reply_text(
+                f"⚠️ {user.first_name}, links or spam words are not allowed.\n"
+                "You have been muted for 10 minutes.\n\n"
+                "第一次警告：广告/链接不允许，已禁言10分钟。"
+            )
+        except Exception as e:
+            logging.warning(f"Mute failed: {e}")
+
+        return
+
+    if spam_warnings[user.id] >= 2:
+        try:
             await update.message.chat.ban_member(user.id)
-            return
-        except:
-            pass
+            await update.message.reply_text(
+                f"🚫 User banned for repeated spam: {user.first_name}"
+            )
+            logging.info(f"Banned spam user: {user.id}")
+        except Exception as e:
+            logging.warning(f"Ban failed: {e}")
 
-    # 🚨 检测 domain（重点）
-    domain_pattern = r"(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}"
 
-    if re.search(domain_pattern, text):
-        try:
-            await update.message.delete()
-            await update.message.chat.ban_member(user.id)
-            return
-        except:
-            pass
+async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context, update.effective_user.id):
+        await update.message.reply_text("Only admin can use this command.")
+        return
 
-    # 🚨 关键词
-    spam_words = ["bonus", "free", "赚钱", "投资", "airdrop"]
+    if not context.args:
+        await update.message.reply_text("Use: /unban user_id")
+        return
 
-    if any(word in text for word in spam_words):
-        try:
-            await update.message.delete()
-        except:
-            pass
+    try:
+        user_id = int(context.args[0])
+        await context.bot.unban_chat_member(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            only_if_banned=True,
+        )
+        spam_warnings.pop(user_id, None)
+        verified_users.discard(user_id)
+        await update.message.reply_text(f"✅ Unbanned user: {user_id}")
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 Bot Status\n\n"
+        "Welcome: ✅\n"
+        "Verify Unlock: ✅\n"
+        "Anti-spam: ✅\n"
+        "First spam: delete + 10 min mute ✅\n"
+        "Second spam: ban ✅\n"
+        "Whitelist: ✅\n"
+        f"Verified users in memory: {len(verified_users)}\n"
+        f"Users with warnings: {len(spam_warnings)}"
+    )
 
 
 def main():
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN is not set")
+
     app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("unban", unban))
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_member))
     app.add_handler(CallbackQueryHandler(button_handler))
